@@ -1,6 +1,19 @@
 #include <Arduino.h>
 #include <WiFiManager.h>
 #include <WiFi.h>
+#include <LittleFS.h>
+#include "AdvancedLogger.h"
+
+const char *customLogPath = "/logs.txt";
+
+const int timeZone = -3 * 3600000; // UTC. In milliseconds
+const int daylightOffset = 0; // No daylight saving time. In milliseconds
+const char *ntpServer1 = "pool.ntp.org";
+const char *ntpServer2 = "time.nist.gov";
+const char *ntpServer3 = "time.windows.com";
+
+long lastMillisLogClear = 0;
+const long intervalLogClear = 30000;
 
 char api_token[120];
 
@@ -26,20 +39,49 @@ void configModeCallback(WiFiManager *myWiFiManager)
     // esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
 }
 
-void handleRoute()
+void handleLogsRoute()
 {
-    Serial.println("[HTTP] handle route");
-    wm.server->send(200, "text/plain", "hello from user code");
+    Serial.println("[HTTP] handle logs route");
+    // Serve the log file stored in LittleFS (customLogPath = "/logs.txt")
+    File f = LittleFS.open(customLogPath, "r");
+    if (!f)
+    {
+        wm.server->send(404, "text/plain", "Log file not found");
+        return;
+    }
+
+    String content;
+    content.reserve((size_t)f.size());
+    while (f.available())
+    {
+        content += (char)f.read();
+    }
+    f.close();
+
+    wm.server->send(200, "text/plain", content);
 }
 
 void bindServerCallback()
 {
-    wm.server->on("/logs", handleRoute); // this is now crashing esp32 for some reason
+    wm.server->on("/logs", handleLogsRoute); // this is now crashing esp32 for some reason
                                            // wm.server->on("/info",handleRoute); // you can override wm!
 }
 
 void setup()
 {
+    // Initialize Serial and LittleFS (mandatory for the AdvancedLogger library)
+    // --------------------
+    Serial.begin(115200);
+
+    if (!LittleFS.begin(true)) // Setting to true will format the LittleFS if mounting fails
+    {
+        Serial.println("An Error has occurred while mounting LittleFS"); // TODO: handle error
+    }
+
+    AdvancedLogger::begin(customLogPath);
+
+    LOG_DEBUG("AdvancedLogger setup done!");
+
     wm.setHostname("enerlab");
 
     WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
@@ -85,11 +127,42 @@ void setup()
         Serial.println("connected...yeey :)");
     }
 
+    LOG_INFO(("IP address: " + WiFi.localIP().toString()).c_str());
+
+    configTime(timeZone, daylightOffset, ntpServer1, ntpServer2, ntpServer3);
+
     wm.startWebPortal(); // Post connection WiFi Manager Portal Start
+
+    LOG_DEBUG("Server started!");
+
+    LOG_INFO("Setup done!");
 }
 
 void loop()
 {
     // put your main code here, to run repeatedly:
     wm.process();
+
+    // LOG_DEBUG("This is a debug message!");
+    // delay(500);
+    // LOG_INFO("This is an info message!!");
+    // delay(500);
+    // LOG_WARNING("This is a warning message!!!");
+    // delay(500);
+    // LOG_ERROR("This is a error message!!!!");
+    // delay(500);
+    // LOG_FATAL("This is a fatal message!!!!!");
+    // delay(500);
+    // LOG_INFO("This is an info message!!", true);
+    // delay(1000);
+
+    // if (millis() - lastMillisLogClear > intervalLogClear)
+    // {
+    //     LOG_INFO("Current number of log lines: %d", AdvancedLogger::getLogLines());
+    //     AdvancedLogger::clearLog();
+    //     AdvancedLogger::setDefaultConfig();
+    //     LOG_WARNING("Log cleared!");
+
+    //     lastMillisLogClear = millis();
+    // }
 }
