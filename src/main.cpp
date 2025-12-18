@@ -2,9 +2,17 @@
 #include <WiFiManager.h>
 #include <WiFi.h>
 #include <LittleFS.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
 #include "AdvancedLogger.h"
 
 const char *customLogPath = "/logs.txt";
+
+// UART Configuration
+#define RXD2 16  // GPIO16 for UART RX
+#define TXD2 17  // GPIO17 for UART TX
+#define UART_BAUD 9600
+HardwareSerial uartSerial(2);  // Use UART2
 
 const int timeZone = -3 * 3600000; // UTC. In milliseconds
 const int daylightOffset = 0; // No daylight saving time. In milliseconds
@@ -15,12 +23,24 @@ const char *ntpServer3 = "time.windows.com";
 long lastMillisLogClear = 0;
 const long intervalLogClear = 30000;
 
-char api_token[120];
+char mqtt_server[40] = "www.enerlab.duckdns.org";
+char mqtt_port[6] = "1883";
+char mqtt_user[40] = "";
+char mqtt_password[40] = "";
+char mqtt_topic[60] = "";
+
+// MQTT Client
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
 
 // WiFiManager, Local intialization. Once its business is done, there is no need to keep it around
 WiFiManager wm;
 
-WiFiManagerParameter custom_api_token("api_token", "API Token", api_token, sizeof(api_token));
+WiFiManagerParameter custom_mqtt_server("mqtt_server", "MQTT Server", mqtt_server, sizeof(mqtt_server));
+WiFiManagerParameter custom_mqtt_port("mqtt_port", "MQTT Port", mqtt_port, sizeof(mqtt_port));
+WiFiManagerParameter custom_mqtt_user("mqtt_user", "MQTT Username", mqtt_user, sizeof(mqtt_user));
+WiFiManagerParameter custom_mqtt_password("mqtt_password", "MQTT Password", mqtt_password, sizeof(mqtt_password));
+WiFiManagerParameter custom_mqtt_topic("mqtt_topic", "MQTT Topic", mqtt_topic, sizeof(mqtt_topic));
 
 void saveWifiCallback()
 {
@@ -67,6 +87,36 @@ void bindServerCallback()
                                            // wm.server->on("/info",handleRoute); // you can override wm!
 }
 
+void reconnectMQTT()
+{
+    while (!mqttClient.connected())
+    {
+        LOG_INFO("Attempting MQTT connection...");
+        String clientId = "Enerlab-" + String(WiFi.macAddress());
+        
+        // Attempt to connect
+        bool connected = false;
+        if (strlen(mqtt_user) > 0)
+        {
+            connected = mqttClient.connect(clientId.c_str(), mqtt_user, mqtt_password);
+        }
+        else
+        {
+            connected = mqttClient.connect(clientId.c_str());
+        }
+        
+        if (connected)
+        {
+            LOG_INFO("MQTT connected");
+        }
+        else
+        {
+            LOG_ERROR("MQTT failed, rc=%d. Retrying in 5 seconds", mqttClient.state());
+            delay(5000);
+        }
+    }
+}
+
 void setup()
 {
     // Initialize Serial and LittleFS (mandatory for the AdvancedLogger library)
@@ -79,6 +129,10 @@ void setup()
     }
 
     AdvancedLogger::begin(customLogPath);
+    
+    // Configure log levels: DEBUG and above to Serial, WARNING and above to file
+    AdvancedLogger::setPrintLevel(LogLevel::DEBUG);
+    AdvancedLogger::setSaveLevel(LogLevel::WARNING);
 
     LOG_DEBUG("AdvancedLogger setup done!");
 
@@ -105,11 +159,15 @@ void setup()
     const char *headhtml = "<link rel='icon' type='image/png' href='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADhElEQVR42rWXTWtcdRSHfwxhKBJCGERciEsppQsREZEikpULEZEuRLoQF1l0UbqQklVBRPwEfgCRLlxIF7bq2MaQ0tqaSTIdk3QySW4nNzczk1IkDBKGEOYcH5pLb8NkYF5uDjzMC8yc555z5n/PqN/wsjK2rI98SYGX5F6EBSjA32rbA13y+8roJMIrytqqPrUyyVdIuAz/wENYlNu8nlpBH+okwgKdsg1N2roiq5BwFR7BCixBCYGHKtiiTivt8FDjXtWUP1bLA5Ktw1osUY5FlmFJ16jIKaUZtqWcb+k721TTN0nyGALYiEXiatCWfXukqfQS12Fbr8BPHmkfCfcQNqHaKWJraiLyXjolbyiDwFmr6WevkWAbIoBuIsxG1SoaVRphDZ1BYNbrXDkCsQR0SCQiga4Pn3hHWZhAIPQduTdi6gCJTKcIMzI5XNmfaITkn/FYeZYcepGIRdoW6tyA/Ya6siT7Ap5YnNgOE7fhwMGAthwcL4JApLc0SPDBHJP+NV9SoZT/0c92PFj7THjTNtTgMeC9wKo8r/L+plpc9S6f+9dqh3PC828sUnYQgcskbz7vZzLZyYFT6ThwWrBrywisiN+/WramIlzm9ZuQUa+BeTXpZc8SyT1gAeap2hwteoDYPcTuaMFm9L1N64Ld0mnL61X7rUt1KF877uNgEkVYVHw3hPtwF2ZhRm639dT+0LT9rqt2U+/YDY0cFair2DHVYe8SyS25i8SfcBuRvA6oQgmJCb9xVOBtq+kmrNOOXUTaA7djEeZhLpa497wSSEBejkTeftXYkTMfcgi8S/LPkZiySD/alkpItNJsR1yJAHLqFrQjg8Q4Eq8j8b6F+gX2+h7MAswdKzHjt6hAr0EVRuEKlWj2346jlbBZBnJGF2y6z5UNgXELlR+yHXt2V1/5HY0Nuphc7GEw4xUtqYQtQEENJL70v5TVoGGRznsk71fCiiozE+chq2GCwbzY1zmBhC2pZiWdox0jGia8DmxHHUtJFwmr6MDKmmYmzqa1H76MwAp4L8e2rem6reoMEkprRZtAouEIdDu27VBi3wJdQ+I1pRW+IyFwBVrJMtK5I1oodgl9CzmlGbajUfghWc061zKLtGdbuorEmIi0Bd6gCgWSH7sf2rZCBCYReEnESQh8AM0uS2poNX0MIzqpYEu+ZHHyFyWsrgp8YrXh/or/D/l1zQWdox4NAAAAAElFTkSuQmCC' />";
     wm.setCustomHeadElement(headhtml);
 
-    wm.addParameter(&custom_api_token);
+    wm.addParameter(&custom_mqtt_server);
+    wm.addParameter(&custom_mqtt_port);
+    wm.addParameter(&custom_mqtt_user);
+    wm.addParameter(&custom_mqtt_password);
+    wm.addParameter(&custom_mqtt_topic);
 
     // reset settings - wipe stored credentials for testing
     // these are stored by the esp library
-    wm.resetSettings();
+    // wm.resetSettings();
 
     // Automatically connect using saved credentials,
     // if connection fails, it starts an access point with the specified name ( "AutoConnectAP"),
@@ -129,7 +187,32 @@ void setup()
 
     LOG_INFO(("IP address: " + WiFi.localIP().toString()).c_str());
 
+    // Generate MQTT topic with MAC address if not configured
+    if (strlen(mqtt_topic) == 0)
+    {
+        String mac = WiFi.macAddress();
+        mac.replace(":", "");
+        snprintf(mqtt_topic, sizeof(mqtt_topic), "enerlab/sensor/%s", mac.c_str());
+    }
+    LOG_INFO(("MQTT Topic: " + String(mqtt_topic)).c_str());
+
     configTime(timeZone, daylightOffset, ntpServer1, ntpServer2, ntpServer3);
+
+    // Initialize UART2 for sensor communication
+    uartSerial.begin(UART_BAUD, SERIAL_8N1, RXD2, TXD2);
+    LOG_INFO("UART initialized on RX=%d, TX=%d, Baud=%d", RXD2, TXD2, UART_BAUD);
+
+    // Initialize MQTT
+    if (strlen(mqtt_server) > 0)
+    {
+        mqttClient.setServer(mqtt_server, atoi(mqtt_port));
+        reconnectMQTT();
+        LOG_INFO(("MQTT configured: " + String(mqtt_server) + ":" + String(mqtt_port)).c_str());
+    }
+    else
+    {
+        LOG_WARNING("MQTT server not configured");
+    }
 
     wm.startWebPortal(); // Post connection WiFi Manager Portal Start
 
@@ -143,26 +226,56 @@ void loop()
     // put your main code here, to run repeatedly:
     wm.process();
 
-    // LOG_DEBUG("This is a debug message!");
-    // delay(500);
-    // LOG_INFO("This is an info message!!");
-    // delay(500);
-    // LOG_WARNING("This is a warning message!!!");
-    // delay(500);
-    // LOG_ERROR("This is a error message!!!!");
-    // delay(500);
-    // LOG_FATAL("This is a fatal message!!!!!");
-    // delay(500);
-    // LOG_INFO("This is an info message!!", true);
-    // delay(1000);
+    // Ensure MQTT stays connected
+    if (strlen(mqtt_server) > 0 && !mqttClient.connected())
+    {
+        reconnectMQTT();
+    }
+    mqttClient.loop();
 
-    // if (millis() - lastMillisLogClear > intervalLogClear)
-    // {
-    //     LOG_INFO("Current number of log lines: %d", AdvancedLogger::getLogLines());
-    //     AdvancedLogger::clearLog();
-    //     AdvancedLogger::setDefaultConfig();
-    //     LOG_WARNING("Log cleared!");
-
-    //     lastMillisLogClear = millis();
-    // }
+    // Read sensor data from UART
+    if (uartSerial.available())
+    {
+        String uartData = uartSerial.readStringUntil('\n');
+        uartData.trim();
+        
+        if (uartData.length() > 0)
+        {
+            LOG_DEBUG(("UART received: " + uartData).c_str());
+            
+            // Parse the received data as JSON
+            JsonDocument doc;
+            DeserializationError error = deserializeJson(doc, uartData);
+            
+            if (error)
+            {
+                LOG_WARNING("JSON parse failed: %s", error.c_str());
+                
+                // If raw data is not JSON, create a JSON message with the raw data
+                doc.clear();
+                doc["raw_data"] = uartData;
+                doc["timestamp"] = millis();
+            }
+            
+            // Serialize JSON and publish to MQTT
+            String jsonOutput;
+            serializeJson(doc, jsonOutput);
+            
+            if (mqttClient.connected())
+            {
+                if (mqttClient.publish(mqtt_topic, jsonOutput.c_str()))
+                {
+                    LOG_INFO(("Published to MQTT: " + jsonOutput).c_str());
+                }
+                else
+                {
+                    LOG_ERROR("MQTT publish failed");
+                }
+            }
+            else
+            {
+                LOG_WARNING("MQTT not connected, skipping publish");
+            }
+        }
+    }
 }
