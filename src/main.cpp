@@ -55,10 +55,10 @@ const char *ntpServer1 = "pool.ntp.org";
 const char *ntpServer2 = "time.nist.gov";
 const char *ntpServer3 = "time.windows.com";
 
-long lastMillisLogClear = 0;
-const long intervalLogClear = 30000;
+const unsigned long heapThreshold = 30000; // Clear logs if free heap drops below 30KB
 long lastMillisMqttReconnect = 0;
 const long intervalMqttReconnect = 5000;
+bool mqttWasConnected = true; // Track MQTT connection state for logging
 
 char mqtt_server[40] = "www.enerlab.duckdns.org";
 char mqtt_port[6] = "8883";
@@ -131,7 +131,6 @@ bool reconnectMQTT()
         return true;
     }
     
-    LOG_INFO("Attempting MQTT connection...");
     String clientId = "Enerlab-" + String(WiFi.macAddress());
     
     // Attempt to connect
@@ -147,12 +146,20 @@ bool reconnectMQTT()
     
     if (connected)
     {
-        LOG_INFO("MQTT connected");
+        if (!mqttWasConnected)
+        {
+            LOG_INFO("MQTT reconnected successfully");
+            mqttWasConnected = true;
+        }
         return true;
     }
     else
     {
-        LOG_ERROR("MQTT failed, rc=%d. Will retry in %ld seconds", mqttClient.state(), intervalMqttReconnect / 1000);
+        if (mqttWasConnected)
+        {
+            LOG_ERROR("MQTT connection failed, rc=%d. Will retry in %ld seconds", mqttClient.state(), intervalMqttReconnect / 1000);
+            mqttWasConnected = false;
+        }
         return false;
     }
 }
@@ -172,7 +179,7 @@ void setup()
     
     // Configure log levels: DEBUG and above to Serial, WARNING and above to file
     AdvancedLogger::setPrintLevel(LogLevel::DEBUG);
-    AdvancedLogger::setSaveLevel(LogLevel::WARNING);
+    AdvancedLogger::setSaveLevel(LogLevel::INFO);
 
     LOG_DEBUG("AdvancedLogger setup done!");
 
@@ -270,6 +277,15 @@ void loop()
 {
     // put your main code here, to run repeatedly:
     wm.process();
+
+    // Check heap memory and clear logs if needed
+    unsigned long freeHeap = ESP.getFreeHeap();
+    
+    if (freeHeap < heapThreshold)
+    {
+        LOG_INFO("Low heap detected (%d bytes), clearing old log entries", freeHeap);
+        AdvancedLogger::clearLogKeepLatestXPercent(50);
+    }
 
     // Ensure MQTT stays connected with timed retry
     if (strlen(mqtt_server) > 0)
