@@ -55,7 +55,7 @@ const char *ntpServer1 = "pool.ntp.org";
 const char *ntpServer2 = "time.nist.gov";
 const char *ntpServer3 = "time.windows.com";
 
-const unsigned long heapThreshold = 30000; // Clear logs if free heap drops below 30KB
+const unsigned long minFreeFlash = 50000; // Clear logs if free flash drops below 50KB
 long lastMillisMqttReconnect = 0;
 const long intervalMqttReconnect = 5000;
 bool mqttWasConnected = true; // Track MQTT connection state for logging
@@ -278,12 +278,14 @@ void loop()
     // put your main code here, to run repeatedly:
     wm.process();
 
-    // Check heap memory and clear logs if needed
-    unsigned long freeHeap = ESP.getFreeHeap();
+    // Check flash storage and clear logs if needed
+    size_t totalBytes = LittleFS.totalBytes();
+    size_t usedBytes = LittleFS.usedBytes();
+    size_t freeFlash = totalBytes - usedBytes;
     
-    if (freeHeap < heapThreshold)
+    if (freeFlash < minFreeFlash)
     {
-        LOG_INFO("Low heap detected (%d bytes), clearing old log entries", freeHeap);
+        LOG_INFO("Low flash storage detected (%d bytes free), clearing old log entries", freeFlash);
         AdvancedLogger::clearLogKeepLatestXPercent(50);
     }
 
