@@ -44,10 +44,10 @@ const char* letsencrypt_root_ca = \
 const char *customLogPath = "/logs.txt";
 
 // UART Configuration
-#define RXD2 16  // GPIO16 for UART RX
-#define TXD2 17  // GPIO17 for UART TX
+#define RXD2 20  // GPIO20 for UART RX
+#define TXD2 21  // GPIO21 for UART TX
 #define UART_BAUD 115000
-HardwareSerial uartSerial(2);  // Use UART2
+HardwareSerial uartSerial(1);  // Use UART1
 
 const int timeZone = -3 * 3600000; // UTC. In milliseconds
 const int daylightOffset = 0; // No daylight saving time. In milliseconds
@@ -60,7 +60,7 @@ long lastMillisMqttReconnect = 0;
 const long intervalMqttReconnect = 5000;
 bool mqttWasConnected = true; // Track MQTT connection state for logging
 
-char mqtt_server[40] = "www.enerlab.duckdns.org";
+char mqtt_server[40] = "enerlab.fabcontigiani.uno";
 char mqtt_port[6] = "8883";
 char mqtt_user[40] = "";
 char mqtt_password[40] = "";
@@ -239,7 +239,7 @@ void setup()
     {
         String mac = WiFi.macAddress();
         mac.replace(":", "");
-        snprintf(mqtt_topic, sizeof(mqtt_topic), "enerlab/sensor/%s", mac.c_str());
+        snprintf(mqtt_topic, sizeof(mqtt_topic), "sensor/%s", mac.c_str());
     }
     LOG_INFO(("MQTT Topic: " + String(mqtt_topic)).c_str());
 
@@ -323,32 +323,29 @@ void loop()
             
             if (error)
             {
-                LOG_WARNING("JSON parse failed: %s", error.c_str());
-                
-                // If raw data is not JSON, create a JSON message with the raw data
-                doc.clear();
-                doc["raw_data"] = uartData;
-                doc["timestamp"] = millis();
-            }
-            
-            // Serialize JSON and publish to MQTT
-            String jsonOutput;
-            serializeJson(doc, jsonOutput);
-            
-            if (mqttClient.connected())
-            {
-                if (mqttClient.publish(mqtt_topic, jsonOutput.c_str()))
-                {
-                    LOG_INFO(("Published to MQTT: " + jsonOutput).c_str());
-                }
-                else
-                {
-                    LOG_ERROR("MQTT publish failed");
-                }
+                LOG_ERROR("JSON parse failed: %s - Data: %s", error.c_str(), uartData.c_str());
             }
             else
             {
-                LOG_WARNING("MQTT not connected, skipping publish");
+                // Serialize JSON and publish to MQTT
+                String jsonOutput;
+                serializeJson(doc, jsonOutput);
+                
+                if (mqttClient.connected())
+                {
+                    if (mqttClient.publish(mqtt_topic, jsonOutput.c_str()))
+                    {
+                        LOG_INFO(("Published to MQTT: " + jsonOutput).c_str());
+                    }
+                    else
+                    {
+                        LOG_ERROR("MQTT publish failed");
+                    }
+                }
+                else
+                {
+                    LOG_WARNING("MQTT not connected, skipping publish");
+                }
             }
         }
     }
