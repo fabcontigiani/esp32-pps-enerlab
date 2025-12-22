@@ -43,6 +43,9 @@ const char* letsencrypt_root_ca = \
 
 const char *customLogPath = "/logs.txt";
 
+// Firmware Version
+#define FIRMWARE_VERSION "1.0.0"
+
 // UART Configuration
 #define RXD1 20  // GPIO20 for UART RX
 #define TXD1 21  // GPIO21 for UART TX
@@ -180,12 +183,13 @@ void setup()
 
     LOG_DEBUG("AdvancedLogger setup done!");
 
-    wm.setHostname("enerlab");
-
     WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
     // it is a good practice to make sure your code sets wifi mode how you want it.
 
     WiFi.setTxPower(WIFI_POWER_8_5dBm); // ESP32-C3 Supermini specific tweak
+
+    wm.setHostname("enerlab");
+    wm.setFirmwareVersion(FIRMWARE_VERSION);
 
     // put your setup code here, to run once:
     Serial.begin(115200);
@@ -194,7 +198,7 @@ void setup()
     const char* menuhtml = "<form action='/logs' method='get'><button>Logs</button></form><br/>\n";
     wm.setCustomMenuHTML(menuhtml);
     // std::vector<const char *> menu = {"wifi", "param", "sep", "info", "custom", "sep", "update", "restart", "exit"};
-    std::vector<const char *> menu = {"wifi", "sep", "info", "custom", "sep", "restart"};
+    std::vector<const char *> menu = {"wifi", "sep", "info", "sep", "restart"};
     wm.setMenu(menu);
 
     const char *headerhtml = "<img alt='logo' width='300' height='80' src='data:image/png;base64,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' />";

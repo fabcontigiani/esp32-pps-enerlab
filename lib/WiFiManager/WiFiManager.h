@@ -428,6 +428,9 @@ class WiFiManager
     // show OTA upload button on info page
     void          setShowInfoUpdate(boolean enabled);
 
+    // set firmware version to display on info page
+    void          setFirmwareVersion(const char* version);
+
     // set ap channel
     void          setWiFiAPChannel(int32_t channel);
     
@@ -604,6 +607,7 @@ class WiFiManager
     const char*   _customHeadElement      = ""; // store custom head element html from user inside <head>
     const char*   _customBodyHeader       = ""; // store custom top body element html from user inside <body>
     const char*   _customBodyFooter       = ""; // store custom bottom body element html from user inside <body>
+    const char*   _firmwareVersion        = ""; // store firmware version from user
     const char*   _customMenuHTML         = ""; // store custom menu html from user
     String        _bodyClass              = ""; // class to add to body
     String        _title                  = FPSTR(S_brand); // app title -  default WiFiManager

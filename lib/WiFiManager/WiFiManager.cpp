@@ -1350,7 +1350,7 @@ void WiFiManager::handleRoot() {
   String page = getHTTPHead(_title, FPSTR(C_root)); // @token options @todo replace options with title
   String str  = FPSTR(HTTP_ROOT_MAIN); // @todo custom title
   str.replace(FPSTR(T_t),_title);
-  str.replace(FPSTR(T_v),configPortalActive ? _apName : (getWiFiHostname() + " - " + WiFi.localIP().toString())); // use ip if ap is not active for heading @todo use hostname?
+  str.replace(FPSTR(T_v),""); // Hide hostname and IP from root page
   page += str;
   page += FPSTR(HTTP_PORTAL_OPTIONS);
   page += getMenuOut();
@@ -1994,6 +1994,14 @@ void WiFiManager::handleInfo() {
   handleRequest();
   String page = getHTTPHead(FPSTR(S_titleinfo), FPSTR(C_info)); // @token titleinfo
   reportStatus(page);
+
+  // Show firmware version if set
+  if(strlen(_firmwareVersion) > 0){
+    page += F("<h3>Firmware</h3><hr><dl>");
+    page += F("<dt>Version</dt><dd>");
+    page += _firmwareVersion;
+    page += F("</dd></dl>");
+  }
 
   uint16_t infos = 0;
 
@@ -3148,6 +3156,14 @@ void WiFiManager::setShowInfoErase(boolean enabled){
  */
 void WiFiManager::setShowInfoUpdate(boolean enabled){
   _showInfoUpdate = enabled;
+}
+
+/**
+ * set firmware version to display on info page
+ * @param const char* version
+ */
+void WiFiManager::setFirmwareVersion(const char* version){
+  _firmwareVersion = version;
 }
 
 /**
