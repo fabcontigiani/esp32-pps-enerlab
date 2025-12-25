@@ -12,6 +12,9 @@
 
 #include "WiFiManager.h"
 
+#ifdef ESP32
+#endif
+
 #if defined(ESP8266) || defined(ESP32)
 
 #ifdef ESP32
@@ -1410,6 +1413,7 @@ void WiFiManager::handleWifi(boolean scan) {
   page += FPSTR(HTTP_FORM_END);
   page += FPSTR(HTTP_SCAN_LINK);
   if(_showBack) page += FPSTR(HTTP_BACKBTN);
+  if(_showInfoErase) page += FPSTR(HTTP_ERASEBTN);
   reportStatus(page);
   page += getHTTPEnd();
 
@@ -1995,11 +1999,23 @@ void WiFiManager::handleInfo() {
   String page = getHTTPHead(FPSTR(S_titleinfo), FPSTR(C_info)); // @token titleinfo
   reportStatus(page);
 
-  // Show firmware version if set
-  if(strlen(_firmwareVersion) > 0){
+  // Unified Firmware section: ESP and STM32 versions
+  {
     page += F("<h3>Firmware</h3><hr><dl>");
-    page += F("<dt>Version</dt><dd>");
-    page += _firmwareVersion;
+    // ESP firmware line
+    if(strlen(_firmwareVersion) > 0){
+      page += F("<dt>ESP32</dt><dd>");
+      page += _firmwareVersion;
+      page += F("</dd>");
+    }
+    // STM32 firmware line with placeholder if missing
+    page += F("<dt>STM32</dt><dd>");
+    String _stm = getSTM32FirmwareVersion();
+    if(_stm.length() > 0){
+      page += _stm;
+    } else {
+      page += FPSTR(S_NA);
+    }
     page += F("</dd></dl>");
   }
 
@@ -3164,6 +3180,15 @@ void WiFiManager::setShowInfoUpdate(boolean enabled){
  */
 void WiFiManager::setFirmwareVersion(const char* version){
   _firmwareVersion = version;
+}
+
+void WiFiManager::setSTM32FirmwareVersion(const char* version){
+  if(version == nullptr) return;
+  _stm32FirmwareVersion = String(version);
+}
+
+String WiFiManager::getSTM32FirmwareVersion(){
+  return _stm32FirmwareVersion;
 }
 
 /**

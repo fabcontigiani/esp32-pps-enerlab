@@ -431,6 +431,10 @@ class WiFiManager
     // set firmware version to display on info page
     void          setFirmwareVersion(const char* version);
 
+    // set/get STM32 firmware version (persisted in NVS)
+    void          setSTM32FirmwareVersion(const char* version);
+    String        getSTM32FirmwareVersion();
+
     // set ap channel
     void          setWiFiAPChannel(int32_t channel);
     
@@ -608,6 +612,7 @@ class WiFiManager
     const char*   _customBodyHeader       = ""; // store custom top body element html from user inside <body>
     const char*   _customBodyFooter       = ""; // store custom bottom body element html from user inside <body>
     const char*   _firmwareVersion        = ""; // store firmware version from user
+    String        _stm32FirmwareVersion   = ""; // STM32 firmware version (in-memory)
     const char*   _customMenuHTML         = ""; // store custom menu html from user
     String        _bodyClass              = ""; // class to add to body
     String        _title                  = FPSTR(S_brand); // app title -  default WiFiManager
