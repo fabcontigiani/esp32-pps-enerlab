@@ -2380,6 +2380,7 @@ void WiFiManager::handleReset() {
   #endif
   handleRequest();
   String page = getHTTPHead(FPSTR(S_titlereset), FPSTR(C_restart)); //@token titlereset
+  page += F("<br style='clear:both'/>");
   page += FPSTR(S_resetting); //@token resetting
   page += getHTTPEnd();
 
@@ -2408,7 +2409,10 @@ void WiFiManager::handleErase(boolean opt) {
 
   bool ret = erase(opt);
 
-  if(ret) page += FPSTR(S_resetting); // @token resetting
+  if(ret) {
+    page += F("<br style='clear:both'/>");
+    page += FPSTR(S_resetting); // @token resetting
+  }
   else {
     page += FPSTR(S_error); // @token erroroccur
     #ifdef WM_DEBUG_LEVEL
