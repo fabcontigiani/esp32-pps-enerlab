@@ -44,7 +44,7 @@ const char* letsencrypt_root_ca = \
 const char *customLogPath = "/logs.txt";
 
 // Firmware Version
-#define FIRMWARE_VERSION "1.0.0"
+#define FIRMWARE_VERSION "1.0.8"
 
 // UART Configuration
 #define RXD1 20  // GPIO20 for UART RX
@@ -53,7 +53,7 @@ const char *customLogPath = "/logs.txt";
 HardwareSerial uartSerial(1);  // Use UART1
 
 // MQTT Configuration
-#define MQTT_SERVER "enerlab.fabcontigiani.uno"
+#define MQTT_SERVER "enerlab.fabcontigiani.sbs"
 #define MQTT_PORT 8883
 #define MQTT_USER ""
 #define MQTT_PASSWORD ""
@@ -69,6 +69,8 @@ const char *ntpServer3 = "time.windows.com";
 
 const unsigned long minFreeFlash = 50000; // Clear logs if free flash drops below 50KB
 long lastMillisMqttReconnect = 0;
+long lastMillisFlashCheck = 0;
+const long intervalFlashCheck = 30000;
 const long intervalMqttReconnect = 5000;
 bool mqttWasConnected = true; // Track MQTT connection state for logging
 
@@ -99,6 +101,11 @@ void configModeCallback(WiFiManager *myWiFiManager)
 void handleLogsRoute()
 {
     LOG_DEBUG("[HTTP] handle logs route");
+    
+    // End and begin to force AdvancedLogger to close the write handle and update file size
+    AdvancedLogger::end();
+    AdvancedLogger::begin(customLogPath);
+
     // Serve the log file stored in LittleFS (customLogPath = "/logs.txt")
     File f = LittleFS.open(customLogPath, "r");
     if (!f)
@@ -107,13 +114,26 @@ void handleLogsRoute()
         return;
     }
 
-    String content;
-    content.reserve((size_t)f.size());
-    while (f.available())
+    // Serve the tail of the log file in original order (newest lines last)
+    const size_t tailBytes = 16384;
+    size_t fileSize = f.size();
+    LOG_DEBUG("[HTTP] log file size: %d bytes", fileSize);
+
+    if (fileSize > tailBytes)
     {
-        content += (char)f.read();
+        f.seek(fileSize - tailBytes);
+        // Skip the first partial line after seeking
+        f.readStringUntil('\n');
     }
+
+    String content = f.readString();
     f.close();
+
+    if (content.length() > 200) {
+        LOG_DEBUG("[HTTP] End of content: %s", content.substring(content.length() - 200).c_str());
+    } else {
+        LOG_DEBUG("[HTTP] End of content: %s", content.c_str());
+    }
 
     wm.server->send(200, "text/plain", content);
 }
@@ -249,6 +269,7 @@ void setup()
         // Configure TLS with Let's Encrypt root CA certificate
         espClient.setCACert(letsencrypt_root_ca);
         
+        mqttClient.setBufferSize(512);
         mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
         LOG_INFO("MQTTS configured: %s:%d", MQTT_SERVER, MQTT_PORT);
         
@@ -272,15 +293,20 @@ void loop()
     // put your main code here, to run repeatedly:
     wm.process();
 
-    // Check flash storage and clear logs if needed
-    size_t totalBytes = LittleFS.totalBytes();
-    size_t usedBytes = LittleFS.usedBytes();
-    size_t freeFlash = totalBytes - usedBytes;
-    
-    if (freeFlash < minFreeFlash)
+    // Check flash storage and clear logs if needed (every 30s)
+    long currentMillis = millis();
+    if (currentMillis - lastMillisFlashCheck >= intervalFlashCheck)
     {
-        LOG_INFO("Low flash storage detected (%d bytes free), clearing old log entries", freeFlash);
-        AdvancedLogger::clearLogKeepLatestXPercent(50);
+        lastMillisFlashCheck = currentMillis;
+        size_t totalBytes = LittleFS.totalBytes();
+        size_t usedBytes = LittleFS.usedBytes();
+        size_t freeFlash = totalBytes - usedBytes;
+        
+        if (freeFlash < minFreeFlash)
+        {
+            LOG_INFO("Low flash storage detected (%d bytes free), clearing old log entries", freeFlash);
+            AdvancedLogger::clearLogKeepLatestXPercent(50);
+        }
     }
 
     // Ensure MQTT stays connected with timed retry
