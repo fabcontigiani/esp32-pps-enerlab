@@ -73,6 +73,9 @@ long lastMillisFlashCheck = 0;
 const long intervalFlashCheck = 30000;
 const long intervalMqttReconnect = 5000;
 bool mqttWasConnected = true; // Track MQTT connection state for logging
+// WiFi Reconnect Watchdog variables
+unsigned long lastWiFiCheck = 0;
+const unsigned long wifiCheckInterval = 30000; // Check every 30 seconds
 
 // MQTT Client with TLS
 WiFiClientSecure espClient;
@@ -204,6 +207,7 @@ void setup()
     LOG_DEBUG("AdvancedLogger setup done!");
 
     WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
+    WiFi.setAutoReconnect(true); // Ensure ESP32 native stack automatically tries to reconnect in the background
     // it is a good practice to make sure your code sets wifi mode how you want it.
 
     WiFi.setTxPower(WIFI_POWER_8_5dBm); // ESP32-C3 Supermini specific tweak
@@ -247,6 +251,9 @@ void setup()
         // if you get here you have connected to the WiFi
         LOG_INFO("WiFi connected successfully");
     }
+
+    // Configure WiFiManager portal to be non-blocking for loop execution
+    wm.setConfigPortalBlocking(false);
 
     LOG_INFO(("IP address: " + WiFi.localIP().toString()).c_str());
 
@@ -292,6 +299,39 @@ void loop()
 {
     // put your main code here, to run repeatedly:
     wm.process();
+
+    // WiFi Reconnect Watchdog
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        unsigned long currentMillis = millis();
+
+        // If the config portal is not active, start it immediately and keep it running
+        if (!wm.getConfigPortalActive())
+        {
+            LOG_WARNING("WiFi connection lost. Starting Config Portal immediately...");
+            wm.setConfigPortalTimeout(0); // Run indefinitely until connected
+            wm.startConfigPortal("Enerlab WiFiManager", "password");
+        }
+
+        // Active background reconnect watchdog (every 30 seconds)
+        if (currentMillis - lastWiFiCheck >= wifiCheckInterval)
+        {
+            lastWiFiCheck = currentMillis;
+            LOG_WARNING("WiFi disconnected. Retrying connection in background...");
+            WiFi.disconnect();
+            WiFi.begin(); // Forces station reconnect attempt in the background
+        }
+    }
+    else
+    {
+        // If connected and the config portal is still active, stop it
+        if (wm.getConfigPortalActive())
+        {
+            LOG_INFO("WiFi reconnected successfully. Stopping Config Portal...");
+            wm.stopConfigPortal();
+        }
+        lastWiFiCheck = millis(); // Reset check timer when connected
+    }
 
     // Check flash storage and clear logs if needed (every 30s)
     long currentMillis = millis();
